@@ -9,7 +9,7 @@ interface InstructionsModalProps {
   onClose: () => void;
 }
 
-const CodeBlock: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const CodeBlock: React.FC<{ children: React.ReactNode; hasPlaceholder?: boolean }> = ({ children, hasPlaceholder = false }) => {
     const [copied, setCopied] = useState(false);
 
     const handleCopy = useCallback(() => {
@@ -22,7 +22,7 @@ const CodeBlock: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     }, [children]);
 
     return (
-        <div className="bg-gray-900 rounded-lg p-4 relative font-mono text-sm mt-2">
+        <div className={`bg-gray-900 rounded-lg p-4 relative font-mono text-sm mt-2 ${hasPlaceholder ? 'border border-dashed border-amber-500' : ''}`}>
             <button
                 onClick={handleCopy}
                 className="absolute top-2 right-2 p-1.5 bg-gray-700 rounded-md hover:bg-gray-600 text-gray-300 transition-colors"
@@ -50,17 +50,18 @@ const VerificationResult: React.FC<{ children: React.ReactNode }> = ({ children 
 const InstructionStep: React.FC<{
   step: string;
   title: string;
-  command: string;
+  command?: string;
   explanation: React.ReactNode;
   verification?: React.ReactNode;
-}> = ({ step, title, command, explanation, verification }) => (
+  hasPlaceholder?: boolean;
+}> = ({ step, title, command, explanation, verification, hasPlaceholder }) => (
   <div className="border-l-4 border-gray-700 pl-4 py-2">
     <h4 className="font-semibold text-lg text-gray-200">
       <span className="text-cyan-400 font-bold mr-2">{step}.</span>
       {title}
     </h4>
     <div className="text-gray-400 my-2 text-sm space-y-2">{explanation}</div>
-    <CodeBlock>{command}</CodeBlock>
+    {command && <CodeBlock hasPlaceholder={hasPlaceholder}>{command}</CodeBlock>}
     {verification && <VerificationResult>{verification}</VerificationResult>}
   </div>
 );
@@ -85,25 +86,41 @@ const InstructionsModal: React.FC<InstructionsModalProps> = ({ connection, onClo
                 <div className="space-y-6">
                     <InstructionStep
                         step="1"
-                        title="Open Firewall Port"
-                        command="sudo firewall-cmd --add-port=4713/tcp --permanent"
+                        title="Find Your Active Firewall Zone"
+                        command="firewall-cmd --get-active-zones"
                         explanation={
-                            <p>This command tells your server's firewall (<code>firewalld</code>) to open TCP port <code>4713</code>. This is the default port PulseAudio uses for network connections. The <code>--permanent</code> flag ensures this rule persists after a reboot.</p>
+                            <p>Your firewall can have multiple zones (e.g., `public`, `home`). This command identifies which zone your network connection is currently using. You'll need this zone name for the next step.</p>
+                        }
+                         verification={
+                           <p><strong>Expected Result:</strong> The output will show one or more zones followed by the network interfaces using them (e.g., `public\n  interfaces: eth0`). Note the name of the zone. If no zone is listed, you can likely use `public`.</p>
                         }
                     />
                     <InstructionStep
                         step="2"
-                        title="Reload & Verify Firewall"
-                        command="sudo firewall-cmd --reload && sudo firewall-cmd --list-ports"
+                        title="Open Port in Your Active Zone"
+                        command="sudo firewall-cmd --zone=public --add-port=4713/tcp --permanent"
+                        hasPlaceholder={true}
                         explanation={
-                            <p>This single command does two things: first, it applies your new firewall rule immediately (<code>--reload</code>), then it lists all open ports. This lets you instantly verify the change.</p>
+                            <>
+                              <p>This command opens the PulseAudio port (`4713`) in the specific zone you found above. The `--permanent` flag ensures the setting survives a reboot.</p>
+                              <p className="mt-2 p-2 bg-amber-900/50 border border-amber-700 rounded-md text-amber-200"><strong>Important:</strong> Replace `public` in the command with the zone name you identified in Step 1 if it's different.</p>
+                            </>
+                        }
+                    />
+                    <InstructionStep
+                        step="3"
+                        title="Reload & Verify Firewall"
+                        command="sudo firewall-cmd --reload && sudo firewall-cmd --zone=public --list-ports"
+                        hasPlaceholder={true}
+                        explanation={
+                            <p>This reloads the firewall to apply your new rule, then immediately lists the ports for your active zone to confirm the change. Remember to replace `public` with your actual zone name if needed.</p>
                         }
                         verification={
-                           <p><strong>Expected Result:</strong> You must see <code>4713/tcp</code> in the output list. If not, the previous command failed, possibly due to a permissions issue or because `firewalld` is not your system's firewall.</p>
+                           <p><strong>Expected Result:</strong> You must see `4713/tcp` in the output list. If not, double-check that you used the correct zone name in the commands for steps 2 and 3.</p>
                         }
                     />
                      <InstructionStep
-                        step="3"
+                        step="4"
                         title="Enable Network Audio (Temporarily)"
                         command={`pactl load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1;${connection.clientIp}`}
                         explanation={
@@ -136,7 +153,7 @@ const InstructionsModal: React.FC<InstructionsModalProps> = ({ connection, onClo
                                 <p><strong>Expected Result:</strong> A "Connection to ... succeeded!" message.</p>
                                 <p className="mt-2 font-semibold">Troubleshooting:</p>
                                 <ul className="list-disc list-inside text-gray-400">
-                                    <li>If it says <strong>"Connection refused,"</strong> the server's firewall is likely blocking you, or the PulseAudio module (Server Step 3) isn't loaded.</li>
+                                    <li>If it says <strong>"Connection refused,"</strong> the server's firewall is likely blocking you, or the PulseAudio module (Server Step 4) isn't loaded.</li>
                                     <li>If it <strong>hangs or times out,</strong> you may have a network issue (are they on the same WiFi?) or the Server IP address is incorrect.</li>
                                 </ul>
                             </>
